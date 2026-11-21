@@ -66,10 +66,25 @@ applyLedgerActivities
   -> Ledger
   -> LedgerClock
   -> (Ledger, LedgerClock)
-applyLedgerActivities lkup ctx activities ledger clock =
-  foldl' step (ledger, clock) activities
-  where
-    step (l, c) act = applyLedgerActivity lkup ctx act l c
+-- Rebuild-from-live. The result of a ledger is fixed by its live activities
+-- in business order, never by the order they arrived (LR8/LR10). So rather
+-- than fork, replay and reconcile (which does not compose for nested
+-- retroactive events), we rebuild: drop reversals and every activity a
+-- reversal targets, order what remains by (effectiveAt, createdAt), and apply
+-- it from an empty ledger. This is the paper's full-reconstruction baseline;
+-- it is correct by construction and order-independent.
+applyLedgerActivities _ ctx activities ledger clock =
+  let reversedIds = [ laReversedActivityId a | a@ReversalActivityData{} <- activities ]
+      isReversal ReversalActivityData{} = True
+      isReversal _                      = False
+      live = [ a | a <- activities
+                 , not (isReversal a)
+                 , laActivityId a `notElem` reversedIds ]
+      ordered = sortBy (comparing (\a -> (laEffectiveAt a, laCreatedAt a, laActivityId a))) live
+      base = ledger { ledgerEntries = [] }
+      ledger' = foldl' (\l a -> generateEntries a ctx l) base ordered
+      clock'  = foldl' (\c a -> advanceClock (laCreatedAt a) c) clock activities
+  in (ledger', clock')
 
 -----------------------------------------------------------------------
 -- applyLedgerActivity

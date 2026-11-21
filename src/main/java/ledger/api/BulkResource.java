@@ -7,6 +7,8 @@ import jakarta.ws.rs.core.Response;
 import ledger.common.LedgerActivityFactory;
 import ledger.common.ledgeractivity.domain.InterestRate;
 import ledger.model.GeneralLedgerActivity;
+import ledger.model.LedgerClock;
+import ledger.model.LedgerEntry;
 import ledger.service.LedgerService;
 import ledger.service.LoanService;
 import ledger.util.CSVUtil;
@@ -14,7 +16,6 @@ import ledger.util.CSVUtil;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.Comparator;
 import java.util.UUID;
 
 import static ledger.util.DateTimeUtil.DB_SAFE_LOCAL_DATETIME_MIN;
@@ -57,18 +58,17 @@ public class BulkResource {
         var generalLedgerActivities = generalLedgerActivityCSVUtil.parse(reader, GeneralLedgerActivity.class);
 
         var temporalContext = loanService.getTemporalActivityContext(loanId);
-
+        generalLedgerActivities.forEach(generalLedgerActivity -> {
+            generalLedgerActivity.setLoanId(loanId.toString());
+            generalLedgerActivity.persist();
+        });
+        // Rebuild the whole ledger from every activity on the loan, replacing its entries.
+        var activities = GeneralLedgerActivity.<GeneralLedgerActivity>list("loanId", loanId.toString()).stream()
+                .map(ledgerActivityFactory::create).toList();
         var ledger = ledgerService.getLedger(loanId, DB_SAFE_LOCAL_DATETIME_MIN);
-
-        generalLedgerActivities.stream().sorted(Comparator.comparing(GeneralLedgerActivity::getTransactionTime))
-                .forEach(generalLedgerActivity -> {
-                    generalLedgerActivity.setLoanId(loanId.toString());
-                    generalLedgerActivity.persist();
-                    var ledgerActivity = ledgerActivityFactory.create(generalLedgerActivity);
-                    ledgerService.applyLedgerActivity(ledger, ledgerActivity,
-                            ledgerService.getCurrentLedgerClock(ledger), temporalContext);
-                });
-
+        ledgerService.applyLedgerActivities(ledger, activities, new LedgerClock(DB_SAFE_LOCAL_DATETIME_MIN),
+                temporalContext);
+        LedgerEntry.delete("loanId", loanId.toString());
         ledger.getEntries().forEach(ledgerEntry -> ledgerEntry.persist());
 
         return Response.status(Response.Status.CREATED).entity(generalLedgerActivities).build();

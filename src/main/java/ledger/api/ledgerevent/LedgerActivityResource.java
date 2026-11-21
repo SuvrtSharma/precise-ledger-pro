@@ -6,6 +6,8 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import ledger.common.LedgerActivityFactory;
 import ledger.model.GeneralLedgerActivity;
+import ledger.model.LedgerClock;
+import ledger.model.LedgerEntry;
 import ledger.service.LedgerService;
 import ledger.service.LoanService;
 
@@ -32,10 +34,15 @@ public class LedgerActivityResource {
         generalLedgerActivity.setLoanId(loanId.toString());
         generalLedgerActivity.persist();
         var temporalContext = loanService.getTemporalActivityContext(loanId);
-        var ledgerActivity = ledgerActivityFactory.create(generalLedgerActivity);
+        // Rebuild the whole ledger from every activity on the loan, so a backdated activity or reversal lands where
+        // on-time processing would have put it (LedgerService.applyLedgerActivities). The ledger is reconstructed, so
+        // its old entries are replaced.
+        var activities = GeneralLedgerActivity.<GeneralLedgerActivity>list("loanId", loanId.toString()).stream()
+                .map(ledgerActivityFactory::create).toList();
         var ledger = ledgerService.getLedger(loanId, DB_SAFE_LOCAL_DATETIME_MIN);
-        ledgerService.applyLedgerActivity(ledger, ledgerActivity, ledgerService.getCurrentLedgerClock(ledger),
+        ledgerService.applyLedgerActivities(ledger, activities, new LedgerClock(DB_SAFE_LOCAL_DATETIME_MIN),
                 temporalContext);
+        LedgerEntry.delete("loanId", loanId.toString());
         ledger.getEntries().forEach(ledgerEntry -> ledgerEntry.persist());
         return generalLedgerActivity;
     }

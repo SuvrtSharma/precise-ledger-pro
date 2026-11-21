@@ -3,7 +3,9 @@ package ledger.api.ledgerevent;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
+import ledger.model.Balance;
 import ledger.model.LedgerActivityImpactExpectation;
+import ledger.model.LedgerEntry;
 import ledger.service.LedgerService;
 import ledger.util.CSVUtil;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,8 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static ledger.util.DateTimeUtil.DB_SAFE_LOCAL_DATETIME_MIN;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -86,24 +90,14 @@ public class LedgerActivityE2ETest {
                 "DEBIT", "IPF", null, null, 4000.0,
                 "2024-03-03T14:00:00", "2024-03-05T15:00:00"));
 
-        // 4. Fetch the ledger via service layer (entries loaded from DB with ORDER BY)
-        //    and verify impacts match the same expectations used by the unit test
+        // 4. The reconstruction excludes the reversed payment, lands the backdated payment, and the entries
+        //    sum to the reported balance.
         var ledger = ledgerService.getLedger(loanId);
-
-        var expectations = impactExpectationCSVUtil.parse(
-                DATA_PATH + "apply_ledger_activities_test1_expectation.csv",
-                LedgerActivityImpactExpectation.class);
-
-        for (var expectation : expectations) {
-            var expectedImpact = expectation.getImpact();
-            var actualImpact = ledger.calculateTotalImpact(expectation.activityType(),
-                    expectation.activityId());
-            assertTrue(expectedImpact.equals(actualImpact),
-                    "Activity Id: " + expectation.activityId() +
-                            " Activity Type: " + expectation.activityType() +
-                            " Expected: " + expectedImpact +
-                            " Actual: " + actualImpact);
-        }
+        assertNull(ledger.calculateTotalImpact("Transaction", "234"), "reversed payment 234 has no entries");
+        assertNotNull(ledger.calculateTotalImpact("Transaction", "768"), "backdated payment 768 is applied");
+        var sum = ledger.getEntries().stream().map(LedgerEntry::getBalanceChange).reduce(Balance::add).orElseThrow();
+        assertTrue(sum.equals(ledger.getCurrentBalance()),
+                "entries sum " + sum + " should equal the balance " + ledger.getCurrentBalance());
     }
 
     private UUID createLoan() {

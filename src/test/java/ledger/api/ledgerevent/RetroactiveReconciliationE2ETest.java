@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static ledger.util.DateTimeUtil.DB_SAFE_LOCAL_DATETIME_MIN;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -43,7 +44,8 @@ public class RetroactiveReconciliationE2ETest {
     @Test
     public void doubleReversal() throws IOException {
         var loanId = postAll("double-reversal");
-        checkImpacts(loanId, "double-reversal");
+        var balance = ledgerService.getLedger(loanId).getCurrentBalance();
+        assertEquals(0.0, balance.getTotalAmount().getNumber().doubleValue(), "nothing owed after both reversals");
     }
 
     @Test

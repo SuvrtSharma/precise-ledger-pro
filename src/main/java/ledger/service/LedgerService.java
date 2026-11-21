@@ -49,8 +49,33 @@ public class LedgerService {
      */
     public void applyLedgerActivities(Ledger ledger, List<LedgerActivity> ledgerActivities,
                                       LedgerClock ledgerClock, TemporalActivityContext temporalActivityContext) {
-        for (var ledgerActivity : ledgerActivities) {
-            applyLedgerActivity(ledger, ledgerActivity, ledgerClock, temporalActivityContext);
+        rebuildFromLiveActivities(ledger, ledgerActivities, ledgerClock, temporalActivityContext);
+    }
+
+    /**
+     * Rebuilds the ledger from its live activities in business order. The result of a ledger is fixed by which
+     * activities are live and their business order, never by the order they arrived (an activity applied late must
+     * end where it would have on time). Rather than fork, replay and reconcile — which does not compose for nested
+     * retroactive events — we drop reversals and every activity a reversal targets, order what remains by
+     * (effectiveAt, createdAt, activityId), and apply it to a fresh ledger. This is the full-reconstruction
+     * baseline: correct by construction and independent of arrival order.
+     */
+    private void rebuildFromLiveActivities(Ledger ledger, List<LedgerActivity> ledgerActivities,
+                                           LedgerClock ledgerClock, TemporalActivityContext temporalActivityContext) {
+        var reversedIds = ledgerActivities.stream()
+                .filter(a -> a instanceof ReversalActivity)
+                .map(a -> ((ReversalActivity) a).getReversedActivityId())
+                .collect(java.util.stream.Collectors.toSet());
+        var live = ledgerActivities.stream()
+                .filter(a -> !(a instanceof ReversalActivity))
+                .filter(a -> !reversedIds.contains(a.getActivityId()))
+                .sorted(Comparator.comparing(LedgerActivity::getEffectiveAt)
+                        .thenComparing(LedgerActivity::getCreatedAt)
+                        .thenComparing(LedgerActivity::getActivityId))
+                .toList();
+        ledger.getEntries().clear();
+        for (var ledgerActivity : live) {
+            ledgerActivity.applyTo(ledger, ledgerClock, temporalActivityContext);
         }
     }
 
