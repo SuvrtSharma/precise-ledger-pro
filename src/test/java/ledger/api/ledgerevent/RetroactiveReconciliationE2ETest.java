@@ -89,6 +89,13 @@ public class RetroactiveReconciliationE2ETest {
         return JSON.writeValueAsString(body);
     }
 
+    @Test
+    public void sameTimeTie() throws IOException {
+        // Same instant, disbursal arriving first: ordered by identity, so the payment (a) is applied first.
+        var loanId = postAll("same-time-tie");
+        checkImpacts(loanId, "same-time-tie");
+    }
+
     private void checkImpacts(UUID loanId, String scenario) throws IOException {
         var ledger = ledgerService.getLedger(loanId);
         var expectations = new CSVUtil<LedgerActivityImpactExpectation>().parse(

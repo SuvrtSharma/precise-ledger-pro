@@ -57,8 +57,9 @@ public class LedgerService {
      * activities are live and their business order, never by the order they arrived (an activity applied late must
      * end where it would have on time). Rather than fork, replay and reconcile — which does not compose for nested
      * retroactive events — we drop reversals and every activity a reversal targets, order what remains by
-     * (effectiveAt, createdAt, activityId), and apply it to a fresh ledger. This is the full-reconstruction
-     * baseline: correct by construction and independent of arrival order.
+     * (effectiveAt, activityType, activityId), and apply it to a fresh ledger. Same-time ties are broken by the
+     * activity's identity, never by when it arrived (createdAt), so any arrival order gives the same ledger. This
+     * is the full-reconstruction baseline.
      */
     private void rebuildFromLiveActivities(Ledger ledger, List<LedgerActivity> ledgerActivities,
                                            LedgerClock ledgerClock, TemporalActivityContext temporalActivityContext) {
@@ -70,7 +71,7 @@ public class LedgerService {
                 .filter(a -> !(a instanceof ReversalActivity))
                 .filter(a -> !reversedIds.contains(a.getActivityId()))
                 .sorted(Comparator.comparing(LedgerActivity::getEffectiveAt)
-                        .thenComparing(LedgerActivity::getCreatedAt)
+                        .thenComparing(LedgerActivity::getActivityType)
                         .thenComparing(LedgerActivity::getActivityId))
                 .toList();
         ledger.getEntries().clear();

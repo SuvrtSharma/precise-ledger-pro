@@ -66,6 +66,16 @@ class RetroactiveReconciliationTest {
         checkEntriesAddUpToBalance(ledger);
     }
 
+    @Test
+    @Transactional
+    void sameTimeTie() throws IOException {
+        // A disbursal (b) and a payment (a) at the same instant, the disbursal arriving first. Same-time activities
+        // are ordered by identity, not arrival, so the payment is applied first whichever arrives first.
+        var ledger = replay("same-time-tie");
+        checkImpacts(ledger, "same-time-tie");
+        checkEntriesAddUpToBalance(ledger);
+    }
+
     /** Applies the scenario's activities in the order they are listed, which is their arrival order. */
     private Ledger replay(String scenario) throws IOException {
         var ledger = new Ledger(LOAN_ID, createZeroBalance(CURRENCY), new ArrayList<>(), CURRENCY);

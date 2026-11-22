@@ -216,6 +216,16 @@ spec = describe "Ledger.Service" $ do
           (ledger, _) = applyLedgerActivities (lookupsFor acts) Nothing acts emptyLedger defaultClock
       currentBalance ledger `shouldBe` Balance 10 0 0 0
 
+    it "activities at the same instant are ordered by identity, not by arrival" $ do
+      -- A disbursal (b) and a payment (a) at the same instant t1. Whichever
+      -- arrives first, each activity's impact must be the same (LR10).
+      let pay h = TransactionActivity loanId "Payment" "Transaction" "a" t1 (arrivedAt h) 5 Debit "FIP"
+          run acts = fst (applyLedgerActivities (lookupsFor acts) Nothing acts emptyLedger defaultClock)
+          disbursalFirst = run [disb "b" t1 0, pay 1]
+          paymentFirst = run [pay 0, disb "b" t1 1]
+      calculateTotalImpact "Transaction" "a" disbursalFirst `shouldBe` calculateTotalImpact "Transaction" "a" paymentFirst
+      calculateTotalImpact "Transaction" "b" disbursalFirst `shouldBe` calculateTotalImpact "Transaction" "b" paymentFirst
+
   describe "reverseLedgerActivity" $ do
 
     it "returns Left when reversed activity has no entries" $ do
